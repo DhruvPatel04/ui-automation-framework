@@ -9,8 +9,11 @@ ui-automation-framework/
 ├── .github/
 │   └── workflows/
 │       └── playwright.yml        # GitHub Actions CI workflow running Playwright tests & uploading reports
-├── playwright.config.ts          # Projects (setup, ui-unauthenticated, ui-authenticated, api) & testId config
+├── playwright.config.ts          # Projects (setup, ui-unauthenticated, ui-authenticated, legacy, exploratory, api)
 ├── package.json                  # Project metadata and Playwright/Node devDependencies
+├── docs/
+│   ├── bug-reports.md            # Task 4 exploratory testing bug reports & severity analysis
+│   └── evidence/                 # Screenshots supporting exploratory findings
 ├── src/
 │   ├── api/
 │   │   └── BookingClient.ts      # Reusable Restful-Booker APIRequestContext client
@@ -30,8 +33,12 @@ ui-automation-framework/
     ├── inventory.spec.ts         # Sorting accuracy & add/remove cart badge (@smoke, @regression)
     ├── cart.spec.ts              # Cart contents, item removal, and reload persistence (@smoke, @regression)
     ├── checkout.spec.ts          # End-to-end totals verification & form validation (@smoke, @regression)
-    └── api/
-        └── booking.spec.ts       # Restful-Booker CRUD & negative API tests (@smoke, @regression)
+    ├── api/
+    │   └── booking.spec.ts       # Restful-Booker CRUD & negative API tests (@smoke, @regression)
+    ├── exploratory/
+    │   └── defects.spec.ts       # Automated regression test for confirmed defect (test.fail())
+    └── legacy/
+        └── legacy.spec.ts        # Fixed versions of the 4 unreliable legacy tests
 ```
 
 ## Prerequisites & Setup
@@ -51,11 +58,17 @@ npx playwright install chromium
 ## Running Tests
 
 ```bash
-# Run all tests (UI + API projects)
+# Run all tests (UI + legacy + API projects)
 npx playwright test
 
 # Run only the API test suite
 npx playwright test --project=api
+
+# Run the exploratory defect test (expected failure via test.fail())
+npx playwright test --project=exploratory
+
+# Run the corrected legacy suite repeatedly across 4 workers
+npx playwright test tests/legacy --repeat-each=10 --workers=4
 
 # Run tests filtered by tag (quote @tag in PowerShell)
 npx playwright test --grep "@smoke"
@@ -90,6 +103,43 @@ During testing against `https://restful-booker.herokuapp.com`, the following non
    * **Evidence:** `POST /booking` with `{"firstname":"OnlyFirstName"}` returned HTTP `500` with body `Internal Server Error` instead of `400 Bad Request`.
    * **Assessment:** Indicates missing server-side request validation before processing `bookingdates`/required fields.
 
+## Task 3: Debugging Unreliable Legacy Tests
+
+The four legacy tests from the appendix were placed in `tests/legacy/legacy.spec.ts` and fixed:
+
+1. **`login works`**
+   * **What was wrong:** `page.fill` calls for username and password were not `await`ed, causing a race condition with clicking `#login-button`, while `waitForTimeout(3000)` introduced an arbitrary fixed wait and `isVisible()` checked visibility only once without retrying.
+   * **What changed:** Added `await` to both `fill()` calls, removed `waitForTimeout(3000)`, switched to `data-test` locators, and used the auto-retrying web-first assertion `await expect(page.getByTestId('title')).toHaveText('Products')`.
+2. **`add item to cart`**
+   * **What was wrong:** The test mutated a shared module-level `cartCount` variable across tests, relied on a brittle positional XPath (`//div[@class='inventory_list']/div[1]/div[3]/button`), and used a non-retrying `textContent()` check.
+   * **What changed:** Removed the shared `cartCount` state, targeted the specific product button with `getByTestId('add-to-cart-sauce-labs-backpack')`, and asserted `await expect(page.getByTestId('shopping-cart-badge')).toHaveText('1')`.
+3. **`cart has two items`**
+   * **What was wrong:** The test never navigated to the cart page before querying `.cart_item` (so `items` was `0`), and its assertion `expect(items).toBeGreaterThanOrEqual(0)` could never fail; it also mutated `cartCount` and used positional `nth(0)`/`nth(1)` locators.
+   * **What changed:** Removed shared state, clicked specific `data-test` add-to-cart buttons, navigated to the cart page via `shopping-cart-link`, and asserted `await expect(page.locator('.cart_item')).toHaveCount(2)` along with the expected item names.
+4. **`sort by price low to high`**
+   * **What was wrong:** After selecting `'lohi'`, the test only checked `expect(prices.length).toBeGreaterThan(0)` and never verified that the prices were actually sorted in ascending order.
+   * **What changed:** Confirmed the dropdown holds `'lohi'`, parsed the displayed price strings into numbers, and asserted `expect(prices).toEqual([...prices].sort((a, b) => a - b))`.
+
+### Repeat-Run Verification
+
+```bash
+npx playwright test tests/legacy --repeat-each=10 --workers=4
+```
+
+* **Result:** `40 passed (1.4m)` (10 repetitions x 4 tests across 4 parallel workers, 0 failures).
+
+### Practices to Avoid These Issues in Future
+
+1. **Always `await` Playwright actions and use web-first assertions instead of fixed sleeps:** Enable TypeScript/ESLint rules (such as `@typescript-eslint/no-floating-promises`) to catch missing `await`s at build time, and replace `waitForTimeout` or one-shot `isVisible()`/`textContent()` checks with auto-retrying `await expect(locator)...` assertions.
+2. **Enforce strict test isolation and meaningful, resilient assertions:** Never share mutable variables across tests, prefer stable semantic/test-id locators (`data-test`, `getByRole`) over positional XPaths or `.nth()`, and write assertions that directly verify the expected outcome (e.g., exact counts or sorted values) so broken behavior always fails.
+
+## Task 4: Exploratory Testing
+
+Exploratory testing was performed with `problem_user` and `performance_glitch_user`. Detailed bug reports, reproduction steps, severity justifications, and screenshots are documented in [docs/bug-reports.md](./docs/bug-reports.md):
+
+1. **Finding 1 (`problem_user`, High):** Typing into the Checkout Step 1 **Last Name** field overwrites **First Name**, leaves **Last Name** empty, and blocks checkout (`Error: Last Name is required`). Automated with `test.fail()` in [tests/exploratory/defects.spec.ts](./tests/exploratory/defects.spec.ts).
+2. **Finding 2 (`performance_glitch_user`, Medium):** Login (`5115 ms` vs. `105 ms` baseline) and product sorting (`5023 ms` vs. `18 ms` baseline) stall for ~5 seconds per action.
+
 ## AI Assistance
 
-* AI assistance (Antigravity / Gemini) was used to scaffold the TypeScript/Playwright configuration, Page Object classes, UI test suites, and this README.
+* AI assistance (Antigravity / Gemini) was used to scaffold the TypeScript/Playwright configuration, Page Object classes, UI/API/exploratory/legacy test suites, bug report documentation, and this README.

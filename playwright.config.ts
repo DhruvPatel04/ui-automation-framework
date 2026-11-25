@@ -33,12 +33,22 @@ export default defineConfig({
     {
       name: 'ui-authenticated',
       testMatch: '**/*.spec.ts',
-      testIgnore: ['**/login.spec.ts', '**/api/**', '**/legacy/**'],
+      testIgnore: ['**/login.spec.ts', '**/api/**', '**/legacy/**', '**/exploratory/**'],
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
         storageState: AUTH_STORAGE_PATH,
       },
+    },
+    {
+      name: 'legacy',
+      testMatch: '**/legacy/**/*.spec.ts',
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'exploratory',
+      testMatch: '**/exploratory/**/*.spec.ts',
+      use: { ...devices['Desktop Chrome'] },
     },
     {
       name: 'api',
