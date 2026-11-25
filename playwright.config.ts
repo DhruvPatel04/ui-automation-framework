@@ -1,5 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 import path from 'path';
+import { BOOKER_BASE_URL } from './src/test-data/bookingData';
 
 export const AUTH_STORAGE_PATH = path.resolve(__dirname, 'playwright/.auth/standard-user.json');
 
@@ -32,12 +33,23 @@ export default defineConfig({
     {
       name: 'ui-authenticated',
       testMatch: '**/*.spec.ts',
-      testIgnore: '**/login.spec.ts',
+      testIgnore: ['**/login.spec.ts', '**/api/**', '**/legacy/**'],
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
         storageState: AUTH_STORAGE_PATH,
       },
-    }
+    },
+    {
+      name: 'api',
+      testMatch: '**/api/**/*.spec.ts',
+      use: {
+        baseURL: BOOKER_BASE_URL,
+        extraHTTPHeaders: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+      },
+    },
   ],
 });
